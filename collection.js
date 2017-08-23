@@ -5,24 +5,33 @@ const chance = new Chance();
 
 module.exports = function(def) {
 
+    let pendingItems = [];
     let itemsPromise = generateItems(def);
     let idAttr = getIdAttr(def);
 
-    return {
+    let api =  {
         query: () => {
-            return itemsPromise;
+            return itemsPromise.then((items) => {
+                return items.concat(pendingItems);
+            });
         },
         chain: (callback) => {
             return itemsPromise.then((items) => {
                 return callback(_.chain(items)).value();
             });
         },
+        create: (template) => {
+            return generateItem(def, template).then((item) => {
+                pendingItems.push(item);
+                return item;
+            });
+        },
         getEndpoint: () => {
             let endpoint = Endpoint();
 
-            endpoint.get(() => itemsPromise);
+            endpoint.get(() => api.query());
             endpoint.get('/:id', (req) => {
-                return itemsPromise.then((items) => {
+                return api.query().then((items) => {
                     let id = +req.params.id;
                     for(let i in items) {
                         if(items.hasOwnProperty(i)) {
@@ -42,6 +51,8 @@ module.exports = function(def) {
         }
     }
 
+    return api;
+
 };
 
 function getIdAttr(def) {
@@ -60,67 +71,84 @@ function generateItems(def) {
         return Promise.resolve(def);
     }
     else {
-        return Promise.all(chance.n(generateItem, def.count || 10));
+        let items = [];
+        let total = def.count || 10;
+        let promise = Promise.resolve();
+        while(total-- > 0) {
+            promise = promise.then(() => {
+                return generateItem(def).then((item) => {
+                    items.push(item);
+                    return item;
+                });
+            });
+        }
+        return promise.then(() => {
+            return items;
+        });
     }
+}
 
-    function generateItem() {
+function generateItem(def, template) {
 
-        let promises = _.mapObject(def.schema, () => {
-            return {};
+    let promises = _.mapObject(def.schema, () => {
+        return {};
+    });
+
+    _.mapObject(promises, (obj) => {
+        obj.promise = new Promise((resolve) => {
+            obj.resolve = resolve;
         });
+    });
 
-        _.mapObject(promises, (obj) => {
-            obj.promise = new Promise((resolve) => {
-                obj.resolve = resolve;
-            });
+    return Promise.all(_.map(def.schema, (attrDef, attr) => {
+
+        return Promise.resolve(getAttributeValue(attrDef, attr)).then((value) => {
+            promises[attr].resolve(value);
+            return {
+                attr: attr,
+                value: value
+            }
         });
+    })).then((results) => {
+        return _.chain(results)
+            .indexBy('attr')
+            .mapObject((obj) => obj.value)
+            .value();
+    });
 
-        return Promise.all(_.map(def.schema, (attrDef, attr) => {
-
-            return Promise.resolve(getAttributeValue(attrDef, attr)).then((value) => {
-                promises[attr].resolve(value);
-                return {
-                    attr: attr,
-                    value: value
+    function getAttributeValue(attrDef, attr) {
+        if (template && template[attr]) {
+            return template[attr];
+        }
+        switch(attrDef.type) {
+            case 'Number':
+                if (attrDef.incremental) {
+                    return attrDef._current ? ++attrDef._current : attrDef._current=1;
                 }
-            });
-        })).then((results) => {
-            return _.chain(results)
-                .indexBy('attr')
-                .mapObject((obj) => obj.value)
-                .value();
-        });
-
-        function getAttributeValue(attrDef, attr) {
-            switch(attrDef.type) {
-                case 'Number':
-                    if (attrDef.incremental) {
-                        return attrDef._current ? ++attrDef._current : attrDef._current=1;
-                    }
-                    else {
-                        return chance.natural();
-                    }
-                case 'StringPattern':
-                    let regex = /\${([^}]*)}/g;
-                    let matches = [];
-                    let valuePromises = [];
-                    let match;
-                    while(match = regex.exec(attrDef.pattern)) {
-                        let attr = match[1];
-                        valuePromises.push((promises[attr]||{}).promise);
-                        matches.push(match);
-                    }
-                    return Promise.all(valuePromises).then((values) => {
-                        let i = 0;
-                        return attrDef.pattern.replace(regex, () => {
-                            return values[i++];
-                        });
+                else {
+                    return chance.natural();
+                }
+            case 'StringPattern':
+                let regex = /\${([^}]*)}/g;
+                let matches = [];
+                let valuePromises = [];
+                let match;
+                while(match = regex.exec(attrDef.pattern)) {
+                    let attr = match[1];
+                    valuePromises.push((promises[attr]||{}).promise);
+                    matches.push(match);
+                }
+                return Promise.all(valuePromises).then((values) => {
+                    let i = 0;
+                    return attrDef.pattern.replace(regex, () => {
+                        return values[i++];
                     });
-                case 'StringEnum':
-                    return chance.pickone(attrDef.enums);
-                case 'StringRandom':
-                    if (attrDef.limit) {
-                        let rnds = attrDef._limit || (attrDef._limit = chance.n(function() {
+                });
+            case 'StringEnum':
+                return chance.pickone(attrDef.enums);
+            case 'StringRandom':
+                if (attrDef.limit) {
+                    let rnds = attrDef._limit || (attrDef._limit = chance.n(function() {
                             if (attrDef.n) {
                                 return chance.n(chance[attrDef.random], attrDef.n, attrDef.options)
                             }
@@ -128,18 +156,43 @@ function generateItems(def) {
                                 return chance[attrDef.random](attrDef.options);
                             }
                         }, attrDef.limit, attrDef.options));
-                        return chance.pickone(rnds);
-                    }
-                    else {
-                        return chance[attrDef.random](attrDef.options);
-                    }
-                case 'Ref':
-                    return attrDef.collection.query().then((items) => {
-                        let item = chance.pickone(items);
-                        return attrDef.pick && item[attrDef.pick] || item;
-                    });
-            }
-        }
+                    return chance.pickone(rnds);
+                }
+                else {
+                    return chance[attrDef.random](attrDef.options);
+                }
+            case 'Ref':
+                return attrDef.collection.query().then((items) => {
+                    let wherePromise = (() => {
+                        if (typeof attrDef.where === 'function') {
+                            return attrDef.where({
+                                getAttribute: (attr) => {
+                                    return (promises[attr]||{}).promise;
+                                }
+                            });
+                        }
+                        else {
+                            return Promise.resolve(attrDef.where);
+                        }
+                    })();
 
+                    let item = (() => {
+                        if (attrDef.where) {
+                            return wherePromise.then((q) => {
+                                return _.findWhere(items, q);
+                            });
+                        }
+                        else {
+                            chance.pickone(items)
+                        }
+                    })();
+                    return Promise.resolve(item).then((item) => {
+                        return Promise.resolve(item || wherePromise.then((q)=>attrDef.collection.create(q))).then((item) => {
+                            return attrDef.pick && item[attrDef.pick] || item;
+                        });
+                    });
+                });
+        }
     }
+
 }
