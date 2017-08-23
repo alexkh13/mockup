@@ -15,7 +15,13 @@ module.exports = function(options) {
                 router.use('/' + filePath, getRouter(fullPath));
             }
             else if(filePath === 'index.js') {
-                router.use(require(fullPath));
+                let subRouter = require(fullPath);
+                router.use((req, res, next) => {
+                    if (options.debug) {
+                        console.log(req.originalUrl);
+                    }
+                    subRouter(req, res, next);
+                });
             }
         });
         return router;

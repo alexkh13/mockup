@@ -1,7 +1,8 @@
 import { Mock } from '../../mockup.web';
 
 let mock = Mock({
-    context: require.context('../rest', true, /\/index\.js$/)
+    context: require.context('../rest', true, /\/index\.js$/),
+    debug: true
 });
 
 mock({

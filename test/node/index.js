@@ -5,7 +5,8 @@ const Mock = require('../../mockup.node');
 let app = express();
 
 let mock = Mock({
-    path: path.resolve(__dirname, '../rest')
+    path: path.resolve(__dirname, '../rest'),
+    debug: true
 });
 
 app.use('/api', mock);

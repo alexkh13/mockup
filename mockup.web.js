@@ -23,6 +23,10 @@ export function Mock(options) {
 
             let statusCode;
 
+            if (options.debug) {
+                console.log(httpOptions.url)
+            }
+
             router(request, {
                 send: httpResolve,
                 end: httpResolve,
