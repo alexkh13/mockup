@@ -5,11 +5,15 @@ const chance = new Chance();
 
 let collections = {};
 
-module.exports = function(name, def) {
+module.exports = Collection;
+
+function Collection(name, def) {
 
     let pendingItems = [];
     let itemsPromise = generateItems(def);
     let idAttr = getIdAttr(def);
+
+    def.$collection = name;
 
     collections[name] = {
         query: () => {
@@ -55,7 +59,7 @@ module.exports = function(name, def) {
 
     return collections[name];
 
-};
+}
 
 function getIdAttr(def) {
     for(let attr in def.schema) {
@@ -163,6 +167,8 @@ function generateItem(def, template) {
                 else {
                     return chance[attrDef.random](attrDef.options);
                 }
+            case 'Collection':
+                return Collection([def.$collection,attr].join('_'), attrDef.def).query();
             case 'Ref':
                 let collection = collections[attrDef.collection];
                 return collection.query().then((items) => {
