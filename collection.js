@@ -3,13 +3,15 @@ const Endpoint = require('./endpoint');
 const Chance = require('chance');
 const chance = new Chance();
 
-module.exports = function(def) {
+let collections = {};
+
+module.exports = function(name, def) {
 
     let pendingItems = [];
     let itemsPromise = generateItems(def);
     let idAttr = getIdAttr(def);
 
-    let api =  {
+    collections[name] = {
         query: () => {
             return itemsPromise.then((items) => {
                 return items.concat(pendingItems);
@@ -29,9 +31,9 @@ module.exports = function(def) {
         getEndpoint: () => {
             let endpoint = Endpoint();
 
-            endpoint.get(() => api.query());
+            endpoint.get(() => collections[name].query());
             endpoint.get('/:id', (req) => {
-                return api.query().then((items) => {
+                return collections[name].query().then((items) => {
                     let id = +req.params.id;
                     for(let i in items) {
                         if(items.hasOwnProperty(i)) {
@@ -49,9 +51,9 @@ module.exports = function(def) {
 
             return endpoint;
         }
-    }
+    };
 
-    return api;
+    return collections[name];
 
 };
 
@@ -162,7 +164,8 @@ function generateItem(def, template) {
                     return chance[attrDef.random](attrDef.options);
                 }
             case 'Ref':
-                return attrDef.collection.query().then((items) => {
+                let collection = collections[attrDef.collection];
+                return collection.query().then((items) => {
                     let wherePromise = (() => {
                         if (typeof attrDef.where === 'function') {
                             return attrDef.where({
@@ -187,7 +190,7 @@ function generateItem(def, template) {
                         }
                     })();
                     return Promise.resolve(item).then((item) => {
-                        return Promise.resolve(item || wherePromise.then((q)=>attrDef.collection.create(q))).then((item) => {
+                        return Promise.resolve(item || wherePromise.then((q)=>collection.create(q))).then((item) => {
                             return attrDef.pick && item[attrDef.pick] || item;
                         });
                     });

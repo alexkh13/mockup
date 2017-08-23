@@ -1,6 +1,6 @@
 const Collection = require('../../../collection');
 
-module.exports = Collection({
+module.exports = Collection('Products', {
     count: 10,
     schema: {
         _id:    { type: 'Number', incremental: true, index: true },
