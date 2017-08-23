@@ -4,7 +4,11 @@ const path = require('path');
 
 module.exports = function(options) {
 
-    return getRouter(options.path);
+    let baseRouter = Router();
+
+    baseRouter.use(options.base || '/', getRouter(options.path));
+
+    return baseRouter;
 
     function getRouter(basePath) {
         let router = Router();

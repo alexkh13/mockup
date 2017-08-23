@@ -2,7 +2,10 @@ const qs = require('qs');
 
 export function Mock(options) {
 
+    const baseRouter = require('./router')();
     const router = require('./router')();
+
+    baseRouter.use(options.base || '/', router);
 
     const req = options.context;
 
@@ -15,7 +18,7 @@ export function Mock(options) {
         return new Promise((resolve, reject) => {
             let request = {
                 // TODO: avoid sending this
-                url: httpOptions.url,
+                url: httpOptions.url.replace(new RegExp('^'+options.base), ''),
                 method: httpOptions.method,
                 body: (httpOptions.data && httpOptions.contentType === 'application/json') ? JSON.parse(httpOptions.data) : httpOptions.data,
                 query: qs.parse(httpOptions.url.split('?')[1])
